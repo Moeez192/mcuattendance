@@ -1,0 +1,95 @@
+#include <SPI.h>
+#include <MFRC522.h>
+#include <ESP8266WiFi.h>
+#include <SoftwareSerial.h>
+#include <FirebaseESP8266.h>
+#include <WiFiUdp.h>
+#include <NTPClient.h>
+
+#define RST_PIN         D3          // Reset pin for RFID reader
+#define SS_PIN          D4          // Slave select pin for RFID reader
+// #define BUZZER_PIN      D3          // Buzzer pin
+#define WIFI_SSID  "" //provide your ssid (wifi name)
+#define WIFI_PASSWORD  "" //provide your wifi password
+#define SCANNER_ID      "Gate(Road Side)" // Unique identifier for the scanner
+const long utcOffsetInSeconds = 18000;
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
+
+MFRC522 mfrc522(SS_PIN, RST_PIN);   // Create instance of MFRC522
+FirebaseData firebaseData;          // Create instance of FirebaseData
+
+void setup() {
+  Serial.begin(9600);
+  // pinMode(BUZZER_PIN, OUTPUT);
+  
+  SPI.begin();                      // Initiate SPI bus
+  mfrc522.PCD_Init();               // Initiate MFRC522
+   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+ //print connecting to the console while trying
+ Serial.print("connecting");
+ //the following line will try to connect with the wifi with a delay time of 500ms. its a while loop.
+ while (WiFi.status() != WL_CONNECTED)
+ {
+ Serial.print(".");
+ delay(500);
+ }
+ //once the wifi is connected it will come out of the loop and print connected to the console
+ Serial.println();
+ Serial.print("connected:" );
+  timeClient.begin();
+
+
+  // Connect to Firebase
+  Firebase.begin("https://live-5ec41-default-rtdb.asia-southeast1.firebasedatabase.app", "LSz6h1p6iFiS6xbbK3aynIGll6gJlUyTQnvQoTGv");
+}
+
+void loop() {
+  timeClient.update();
+   // Get  time
+    String hours = String(timeClient.getHours());
+    String mins = String(timeClient.getMinutes());
+    String time = String(hours + ":" + mins);
+  // Check for new cards
+  if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
+    // Get card number
+    String cardNumber = "";
+    for (byte i = 0; i < mfrc522.uid.size; i++) {
+      cardNumber += String(mfrc522.uid.uidByte[i], HEX);
+    }
+    cardNumber.toUpperCase();
+    Serial.print(cardNumber);
+    // Serial.print(hours+":"+mins);
+    
+   
+    // Upload to Firebase
+    String path = "scans/" + cardNumber + "/" + time;
+    Firebase.setString(firebaseData, path + "/scanner_id", SCANNER_ID);
+    Firebase.setString(firebaseData, path + "/scan_time", time);
+    Firebase.setString(firebaseData, path + "/card_number", cardNumber);
+    if (firebaseData.httpCode() == 200) {
+      Serial.println("Scan uploaded successfully!");
+      // digitalWrite(BUZZER_PIN, HIGH);  // Beep buzzer
+      // delay(100);
+      // digitalWrite(BUZZER_PIN, LOW);
+    } else {
+      Serial.println("Upload failed!");
+      Serial.println(firebaseData.errorReason());
+      // digitalWrite(BUZZER_PIN, HIGH);  // Beep buzzer
+      // delay(100);
+      // digitalWrite(BUZZER_PIN, LOW);
+      // digitalWrite(BUZZER_PIN, HIGH);  // Beep buzzer
+      // delay(100);
+      // digitalWrite(BUZZER_PIN, LOW);
+      // digitalWrite(BUZZER_PIN, HIGH);  // Beep buzzer
+      // delay(100);
+      // digitalWrite(BUZZER_PIN, LOW);
+    }
+
+    // Halt PICC
+    mfrc522.PICC_HaltA();
+    // Stop encryption on PCD
+    mfrc522.PCD_StopCrypto1();
+  }
+}
